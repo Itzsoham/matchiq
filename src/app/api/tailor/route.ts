@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractPdfText } from "@/lib/pdf-extract";
-import { tailorApplication } from "@/lib/anthropic";
+import { tailorApplication } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 
