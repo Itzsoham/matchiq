@@ -3,6 +3,11 @@ import { extractPdfText } from "@/lib/pdf-extract";
 import { tailorApplication } from "@/lib/gemini";
 
 export const runtime = "nodejs";
+// The Gemini call with a large structured-output schema regularly takes
+// 15-20+ seconds; Vercel's default function timeout (~10s on Hobby) kills
+// the request before it responds, surfacing as a platform-level 500 instead
+// of this route's own error handling.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
