@@ -12,6 +12,7 @@ export const DUMMY_CANDIDATE = {
 };
 
 export const DUMMY_RESUME_TEXT = `Soham Maury
+Ahmedabad, India | +91 98765 43210 | soham.test@example.com | linkedin.com/in/sohammaury | github.com/itzsoham
 Frontend Lead with 3 years of experience architecting scalable React.js and Next.js applications,
 component libraries, and Micro-Frontend systems for enterprise and AI-powered SaaS platforms.
 

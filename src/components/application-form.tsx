@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,7 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { extractContactFromResumeText, type ExtractedContact } from "@/lib/contact-extract";
 import type { CandidateContact, TailorResult } from "@/lib/types";
+
+const AUTOFILL_DEBOUNCE_MS = 500;
+const AUTOFILL_MIN_TEXT_LENGTH = 20;
 
 export function ApplicationForm({
   onResult,
@@ -32,6 +36,46 @@ export function ApplicationForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Best-effort autofill from the resume — never overwrites a field the
+  // candidate already filled in themselves.
+  function applyExtractedContact(extracted: ExtractedContact) {
+    if (extracted.email) {
+      setEmail((prev) => (prev.trim() ? prev : extracted.email!));
+    }
+    if (extracted.phone) {
+      setPhone((prev) => (prev.trim() ? prev : extracted.phone!));
+    }
+    if (extracted.links.length > 0) {
+      setLinks((prev) => (prev.trim() ? prev : extracted.links.join("\n")));
+    }
+  }
+
+  // Pasted-text tab: cheap regex extraction, runs entirely client-side.
+  useEffect(() => {
+    if (resumeText.trim().length < AUTOFILL_MIN_TEXT_LENGTH) return;
+    const timer = setTimeout(() => {
+      applyExtractedContact(extractContactFromResumeText(resumeText));
+    }, AUTOFILL_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [resumeText]);
+
+  // Upload tab: extract text server-side (no Gemini call) as soon as a PDF
+  // is chosen, so fields can autofill before the candidate hits submit.
+  async function handleResumeFileChange(file: File | null) {
+    setResumeFile(file);
+    if (!file) return;
+
+    try {
+      const formData = new FormData();
+      formData.set("resumeFile", file);
+      const res = await fetch("/api/extract-contact", { method: "POST", body: formData });
+      if (!res.ok) return;
+      applyExtractedContact((await res.json()) as ExtractedContact);
+    } catch {
+      // Best-effort convenience only — the candidate can still fill fields in manually.
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -157,7 +201,7 @@ export function ApplicationForm({
                   type="file"
                   accept="application/pdf"
                   className="hidden"
-                  onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => handleResumeFileChange(e.target.files?.[0] ?? null)}
                 />
               </div>
             </TabsContent>

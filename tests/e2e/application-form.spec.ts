@@ -59,6 +59,11 @@ test.describe("MatchIQ application form", () => {
     await page.route("**/api/tailor", async (route) => {
       await route.fulfill({ json: MOCK_TAILOR_RESULT });
     });
+    // Not under test here — stub it out so the contact-autofill fetch doesn't
+    // add noise to this spec's assertions or logs.
+    await page.route("**/api/extract-contact", async (route) => {
+      await route.fulfill({ json: { email: null, phone: null, links: [] } });
+    });
 
     await page.goto("/");
     await fillContactFields(page);
