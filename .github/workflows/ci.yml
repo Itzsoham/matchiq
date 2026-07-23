@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-build:
+    name: Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          # Dummy value so the build doesn't warn about a missing key —
+          # no live Gemini calls happen during `next build`.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || 'dummy-build-key' }}
+
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate resume fixture
+        run: node tests/fixtures/generate-resume-pdf.mjs
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+
+      - name: Install Playwright OS dependencies
+        run: npx playwright install-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          CI: true
+          # Optional: set a GEMINI_API_KEY repo secret to also run the live
+          # Gemini test (tests/e2e/live-tailor.spec.ts). It self-skips when
+          # this is unset, so PRs from forks without the secret still pass.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+  # Gate for branch protection / deploy: require this to succeed before
+  # merging to main (and therefore before Vercel's git-integration deploy
+  # picks up main). Add "ci-passed" as a required status check in the
+  # repo's branch protection rules for `main`.
+  ci-passed:
+    name: CI Passed
+    runs-on: ubuntu-latest
+    needs: [lint-and-build, e2e]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.lint-and-build.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "One or more required jobs failed."
+            exit 1
+          fi
